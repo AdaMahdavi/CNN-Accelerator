@@ -12,16 +12,9 @@ module mvm_compute_core #(
 
     input  logic   i_run,
     
-    // //activation bram signals
-    
-    // output logic o_rd_act,
-    // output logic [ACT_ADDR - 1 : 0] o_act_addr,
+
     input  logic [DATA_W - 1 : 0] i_activation [VEC_W - 1 : 0],
-    
-    // //weights bram signals 
-    
-    // output logic o_rd_wei,
-    // output logic [ACT_ADDR - 1 : 0] o_wei_addr,   
+
     input  logic [DATA_W - 1 : 0] i_weights_m  [VEC_W - 1 : 0][VEC_W - 1 : 0],
     
     /////
@@ -43,7 +36,6 @@ module mvm_compute_core #(
 
     logic [VEC_W - 1 : 0] dot_ivalid, dot_ivalid_next;
     
-    //assign dot_ivalid_next = {(VEC_W){i_start}};
 
     logic [VEC_W - 1 : 0] dot_ovalid;
     logic dot_ovalid_com;
@@ -51,29 +43,6 @@ module mvm_compute_core #(
     assign dot_ovalid_com = (dot_ovalid == {(VEC_W){1'b1}}); //we only proceed to DONE once all dot cores have stable outputs
     
     logic [2*DATA_W + $clog2(VEC_W) - 1 : 0] result_r [VEC_W - 1 : 0];
-
-
-    // typedef enum [1:0] logic {
-
-    //     IDLE    = 0,
-    //     READ    = 1,
-    //     COMPUTE = 2, 
-    //     DONE    = 3
-
-    // } state_t;
-
-    // state_t state, next_state;
-
-    // always_comb begin
-
-    //     case (state)
-    //         IDLE   : next_state =   (i_run) ? READ :    IDLE;
-    //         READ   : next_state = COMPUTE;                         //since we're using single cycle latency bram
-    //         COMPUTE: next_state = (dot_ovalid)? DONE : COMPUTE;    //
-    //         DONE   : next_state =    IDLE;                         //one idle cycle before proceeding to next mvm operation
-    //     endcase
-
-    // end
 
 
     always_ff @(posedge clk) begin
@@ -112,7 +81,6 @@ module mvm_compute_core #(
 
     generate
 
-        //logic [VEC_W - 1 : 0] dot_ovalid;
 
         for (i = 0; i < VEC_W ; i = i + 1) begin : dot_cores
 
