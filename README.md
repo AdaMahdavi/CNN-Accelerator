@@ -1,4 +1,4 @@
-# Custom RTL CNN Inference Accelerator — Kria KV260
+# Custom RTL CNN Inference Accelerator 
 
 ## Overview
 
@@ -12,20 +12,22 @@ So far: MVM engine is done! (Met timing at 500MHz).
 
 One of the main things I considered while working on this was maximizing performance through making synthesis behaviour as predictable as possible and using native FPGA fabric resources. That included *instantiating both memory and DSP macros manually.*
 
-![DSP cascade architecture](dsp_cascade.png)
+![DSP cascade architecture](media/dsp_cascade.png)
 *Typical approach: parallel DSPs with fabric adder tree vs this implementation: cascaded DSP MAC chain*
 
-A typical MVM approach separates multiplication (DSP slices) and accumulation (LUT-based adder tree), I combined both stages into cascaded DSP chains using PCIN/PCOUT. Three biggest differences:
+A typical MVM approach separates multiplication (DSP slices) and accumulation (LUT-based adder tree), I combined both stages into cascaded DSP chains using PCIN/PCOUT. Three biggest differences it makes:
 
 **Routing:** DSP slices sit in columns in UltraScale+ with dedicated native interconnect between them. Accumulation through PCIN/PCOUT uses that path; no general-purpose fabric routing. Verified post-implementation that all DSPs per compute instance landed on the same column without Pblock constraints.
 
 **Latency:** An adder tree adds ⌈log₂(N)⌉ extra pipeline stages on top of DSP multiply latency. PCIN/PCOUT folds accumulation into the chain itself; latency is fixed at N DSP stages, each contributing 4 cycles internally. Tradeoff is that longer cascades mean more cycles to first result, but dedicated routing makes higher frequencies achievable.
 
-**Utilization:** Almost exclusively DSP slices; no LUTs burned on adder tree logic.
+**Utilization:** Exclusively DSP slices; no LUTs burned on adder tree logic.
 
 Worth noting: whether the cascade beats an adder tree depends on kernel size. For very large vectors an adder tree might win on latency. But larger matrices also give you more cycles before the next matrix load, which naturally absorbs the extra pipeline fill time. A future optimization would be a mux between both approaches based on vector width.
 
 ---
+
+## Some notable architecture details:
 
 ### Data dependency hazard handling
 
@@ -35,7 +37,7 @@ The problem: accumulation happens at the 3rd stage of the DSP pipeline. So DSP #
 
 Fixed with a VEC_W x VEC_W shift register queue; each operand pair gets staggered into its DSP at the correct cycle offset. This dependency hazard doesn't exist with an adder tree since all DSP instances output simultaneously and feed into fully parallel independent data lanes.
 
----
+
 
 ### Sliding window convolution dataflow
 
@@ -43,11 +45,11 @@ Instead of feeding partial vector x vector operands, the engine feeds accumulate
 
 This increases DSP usage compared to a vector-only approach but gives much more detailed convolution for image processing with one result per cycle in steady state after pipeline fill.
 
----
+
 
 ### RAMB36E2 explicit instantiation
 
-Activation and weight BRAMs instantiated directly from UG573 in Simple Dual-Port mode; write port A, read port B, 72-bit width for maximum bandwidth. Explicit instantiation prevents distributed RAM inference.
+Activation and weight BRAMs are instantiated directly from ramb36e2 primitives in Simple Dual-Port mode (to enable maximum bandwidth). write port A, read port B, 72-bit width for maximum bandwidth. Explicit instantiation prevents distributed RAM inference.
 
 Things that aren't obvious from the template:
 - SDP assigns port A as write and port B as read
@@ -61,12 +63,12 @@ Result BRAM uses CLOCK_DOMAINS("INDEPENDENT"); PL writes on the compute clock, P
 
 ### Timing closure at 500MHz
 
-Met timing at 500MHz with 0.234ns slack! (VEC_W = 16 => 16 x 16 = 256 DSP slices)
+MVM Engine timing at 500MHz with 0.234ns slack! (VEC_W = 16 => 16 x 16 = 256 DSP slices)
 I used `dont_touch` rtl attributes on the shift register queue array declarations inside the compute primitive, and also on unused bram ports, as without them Vivado traces them as unobservable/unused and prunes them. 
 
-![timing](timing.png)
+![timing](media/timing.png)
 
-Final implementation uses 131K flip-flops confirmed in utilization post-fix. Probably some room for optimization here; having synchronous reset may be preventing Vivado from mapping registers to SRLs. Holding off on that until PS integration since it would change synthesis behavior anyway (as most 'dont_touch's would be gone).
+Currently, final implementation uses 131K flip-flops (for 16-wide, 16-bit vecotrs) confirmed in utilization post-fix. Some serious room for optimization here; my current way of handling resets may be preventing Vivado from mapping registers to SRLs. Holding off on that until PS integration since it would change synthesis behavior anyway (as most 'dont_touch's would be gone).
 
 - [Utilization report](reports/mvm_pl_top_utilization_placed.rpt)
 - [Timing summary report](reports/mvm_pl_top_timing_summary_routed.rpt) 
@@ -87,10 +89,9 @@ The meaningful way to test this on the SoC is through DDR DMA; streaming weights
 **CNN architecture:**
 How many layers, how many running in parallel, what kernel sizes; decisions that depend on how the architecture evolves as I go.
 
-## Architecture Notes
+---
 
-
-## References
-- UG573; UltraScale Architecture Memory Resources User Guide
-- UG574; UltraScale Architecture DSP Slice User Guide
-- Arora et al., 2022; "Tensor Slices: FPGA Building Blocks for the Deep Learning Era" https://dl.acm.org/doi/full/10.1145/3529650
+## References (so far-)
+- [UltraScale Architecture Memory Resources User Guide](https://docs.amd.com/r/en-US/ug573-ultrascale-memory-resources)
+- [UltraScale Architecture DSP Slice User Guide](https://0x04.net/~mwk/xidocs/ug/ug579-ultrascale-dsp.pdf)
+- [The paper which first got me interested in custom PEs.](https://dl.acm.org/doi/full/10.1145/3529650)
