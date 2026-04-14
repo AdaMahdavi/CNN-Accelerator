@@ -83,9 +83,10 @@ Result BRAM uses CLOCK_DOMAINS("INDEPENDENT"); PL writes on the compute clock, P
 
 ---
 
-### Timing closure at 500MHz
+### Timing and Utilization
 
-MVM Engine timing at 500MHz with 0.234ns slack! (VEC_W = 16 => 16 x 16 = 256 DSP slices)
+MVM Engine met timing at 500MHz with 0.234ns slack! (VEC_W = 16 => 16 x 16 = 256 DSP slices)
+
 I used `dont_touch` rtl attributes on the shift register queue array declarations inside the compute primitive, and also on unused bram ports, as without them Vivado traces them as unobservable/unused and prunes them. 
 
 ![timing](media/timing.png)
