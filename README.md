@@ -4,11 +4,35 @@
 
 Ongoing project; building rtl and hardware/software stack piece by piece as I learn. I aim to use my custom weight-stationary compute engine with sliding window convolution dataflow on variable-size 16-bit fixed-point arrays.
 
-So far: MVM engine is done! (Met timing at 500MHz).
+So far: MVM engine is done! (Met timing at 500MHz on 16-wide, 16-bit vectors).
 
-## What's Done
+## What's Done:
 
-### Manual DSP and BRAM primitive instantiation
+### MVM compute core
+A fully parameterized VEC_W x VEC_W matrix-vector multiply engine with a baseline memory interconnect; VEC_W parallel dot cores each computing one output element via a VEC_W-deep DSP48E2 cascade. Weight rows and activation vector read from dedicated BRAMs, results offloaded to result BRAM. Starts automatically on reset deassertion and runs continuously.
+
+![alt text](media/schematic.png) 
+
+**Cycling behaviour:**
+- `INIT` : fills pipeline over `VEC_W + DSP_STAGES - 2` cycles; loads first activation and walks weight rows into the compute core
+- `STREAM` : steady state; new weight row every cycle, new activation every VEC_W cycles, one result per cycle after pipeline fill
+- `WRITE_RES` : fires when `core_result_ready` asserts; walks VEC_W result addresses into result BRAM over VEC_W cycles, then returns to STREAM
+
+BRAM read latency (2 cycles, DOB_REG=1) is absorbed into the INIT fill phase. Weight streaming continues during WRITE_RES to avoid stalling the pipeline.
+
+**Module hierarchy:**
+- `dsp_primitive.sv` : DSP48E2 macro instantiation and wrapper
+- `dot_product_pe.sv` : VEC_W-deep DSP cascade; one dot product per instance, shift register queue handling data dependency hazard
+- `mvm_core.sv` : VEC_W parallel dot_core instances; one per output element, activation broadcast, weight rows distributed
+- `control_mvm.sv` : 3-state FSM (INIT/STREAM/WRITE_RES); sequences BRAM reads, drives compute core, writes results
+- `act_bram.sv`/`weight_bram.sv` : RAMB36E2 SDP, 72-bit width, explicit primitive instantiation for weights matrix and activation(s).
+- `results_bram.sv` : RAMB36E2 SDP, CLOCK_DOMAINS INDEPENDENT; PL write, PS read
+- `mvm_pl_wrapper.sv` — temporary top-level wrapper
+
+--- 
+## Some notable architecture details (so far)
+
+### Integrating accumulation stage into DSP48E2 cascaded interconnect
 
 One of the main things I considered while working on this was maximizing performance through making synthesis behaviour as predictable as possible and using native FPGA fabric resources. That included *instantiating both memory and DSP macros manually.*
 
@@ -23,11 +47,9 @@ A typical MVM approach separates multiplication (DSP slices) and accumulation (L
 
 **Utilization:** Exclusively DSP slices; no LUTs burned on adder tree logic.
 
-Worth noting: whether the cascade beats an adder tree depends on kernel size. For very large vectors an adder tree might win on latency. But larger matrices also give you more cycles before the next matrix load, which naturally absorbs the extra pipeline fill time. A future optimization would be a mux between both approaches based on vector width.
+- Worth noting: whether the cascade beats an adder tree depends on kernel size. For very large vectors an adder tree might win on latency. But larger matrices also give you more cycles before the next matrix load, which naturally absorbs the extra pipeline fill time. A future optimization would be a mux between both approaches based on vector width.
 
----
 
-## Some notable architecture details:
 
 ### Data dependency hazard handling
 
